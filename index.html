@@ -60,7 +60,7 @@ scene.background = new THREE.Color(0x202226);
 camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 5000);
 renderer = new THREE.WebGLRenderer({antialias:true});
 renderer.setSize(innerWidth, innerHeight);
-renderer.setPixelRatio(devicePixelRatio);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 document.getElementById('app').appendChild(renderer.domElement);
 controls = new THREE.OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
@@ -100,7 +100,7 @@ function frameObject(obj, view) {
 
 function showGeometry(geo, name) {
   if (mesh) { scene.remove(mesh); mesh.geometry.dispose(); }
-  geo.computeVertexNormals();
+  if (!geo.attributes.normal) geo.computeVertexNormals();
   var mat = new THREE.MeshStandardMaterial({color:0xd8d3c8, roughness:0.65, metalness:0.05});
   mesh = new THREE.Mesh(geo, mat);
   // STLのZアップをThreeのYアップへ：-90度回転（ベッドに置いた向き）
