@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>STLビューア（ゴリ特製）</title>
+<style>
+  html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#202226; font-family:sans-serif; }
+  #app { position:fixed; inset:0; }
+  canvas { display:block; }
+  .bar { position:fixed; left:0; right:0; display:flex; gap:8px; padding:10px; box-sizing:border-box; flex-wrap:wrap; z-index:10; }
+  #topbar { top:0; }
+  #bottombar { bottom:0; align-items:flex-end; }
+  button, .filebtn {
+    font-size:17px; padding:12px 16px; border-radius:12px; border:none;
+    background:#f2f2f2; color:#111; font-weight:bold; cursor:pointer;
+    box-shadow:0 2px 6px rgba(0,0,0,.4);
+  }
+  button:active, .filebtn:active { background:#ffd34d; }
+  #info {
+    margin-left:auto; background:rgba(0,0,0,.65); color:#fff; border-radius:12px;
+    padding:10px 14px; font-size:15px; line-height:1.5; max-width:62%;
+  }
+  #msg {
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+    color:#fff; font-size:19px; background:rgba(0,0,0,.6); padding:16px 22px;
+    border-radius:14px; z-index:5; text-align:center; line-height:1.6;
+  }
+  input[type=file] { display:none; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="msg">STLファイルを選ぶか<br>サンプルを見てや</div>
+<div class="bar" id="topbar">
+  <label class="filebtn" for="file">📂 STLを開く</label>
+  <input type="file" id="file" accept=".stl">
+  <button id="sample">サンプル</button>
+  <div id="info">サイズ：—</div>
+</div>
+<div class="bar" id="bottombar">
+  <button data-view="front">前</button>
+  <button data-view="side">横</button>
+  <button data-view="top">上</button>
+  <button data-view="reset">斜め</button>
+  <button id="bedbtn">ベッド枠：入</button>
+</div>
+<script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+<script src="https://unpkg.com/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+<script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+var scene, camera, renderer, controls, mesh = null, bedBox = null;
+var info = document.getElementById('info');
+var msg = document.getElementById('msg');
+
+scene = new THREE.Scene();
+scene.background = new THREE.Color(0x202226);
+camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 5000);
+renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(devicePixelRatio);
+document.getElementById('app').appendChild(renderer.domElement);
+controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+var key = new THREE.DirectionalLight(0xffffff, 0.85); key.position.set(120, 180, 220); scene.add(key);
+var fill = new THREE.DirectionalLight(0xffffff, 0.35); fill.position.set(-160, 60, -120); scene.add(fill);
+
+// A1 mini ベッド 180x180 のグリッドと枠
+var grid = new THREE.GridHelper(180, 18, 0x888888, 0x444444);
+grid.rotation.x = 0; // XZ平面がデフォルト
+scene.add(grid);
+function makeBedBox() {
+  var g = new THREE.BoxGeometry(180, 180, 180);
+  var e = new THREE.EdgesGeometry(g);
+  var l = new THREE.LineSegments(e, new THREE.LineBasicMaterial({color:0xffb020}));
+  l.position.set(0, 90, 0);
+  return l;
+}
+bedBox = makeBedBox();
+scene.add(bedBox);
+
+function frameObject(obj, view) {
+  var box = new THREE.Box3().setFromObject(obj);
+  var c = box.getCenter(new THREE.Vector3());
+  var s = box.getSize(new THREE.Vector3());
+  var d = Math.max(s.x, s.y, s.z) * 1.9 + 60;
+  controls.target.copy(c);
+  if (view === 'front') camera.position.set(c.x, c.y, c.z + d);
+  else if (view === 'side') camera.position.set(c.x + d, c.y, c.z);
+  else if (view === 'top') camera.position.set(c.x, c.y + d, c.z + 0.01);
+  else camera.position.set(c.x + d*0.75, c.y + d*0.55, c.z + d*0.75);
+  camera.lookAt(c);
+  controls.update();
+  return {box: box, size: s};
+}
+
+function showGeometry(geo, name) {
+  if (mesh) { scene.remove(mesh); mesh.geometry.dispose(); }
+  geo.computeVertexNormals();
+  var mat = new THREE.MeshStandardMaterial({color:0xd8d3c8, roughness:0.65, metalness:0.05});
+  mesh = new THREE.Mesh(geo, mat);
+  // STLのZアップをThreeのYアップへ：-90度回転（ベッドに置いた向き）
+  mesh.rotation.x = -Math.PI/2;
+  scene.add(mesh);
+  var r = frameObject(mesh, 'reset');
+  var vol = 0;
+  // 体積計算（符号付き四面体）
+  var pos = geo.attributes.position, idx = geo.index;
+  var vA = new THREE.Vector3(), vB = new THREE.Vector3(), vC = new THREE.Vector3(), cb = new THREE.Vector3(), ab = new THREE.Vector3();
+  function tri(i0, i1, i2) {
+    vA.fromBufferAttribute(pos, i0); vB.fromBufferAttribute(pos, i1); vC.fromBufferAttribute(pos, i2);
+    cb.subVectors(vC, vB); ab.subVectors(vA, vB); cb.cross(ab);
+    vol += cb.dot(vA) / 6.0;
+  }
+  if (idx) { for (var i=0;i<idx.count;i+=3) tri(idx.getX(i), idx.getX(i+1), idx.getX(i+2)); }
+  else { for (var i=0;i<pos.count;i+=3) tri(i, i+1, i+2); }
+  vol = Math.abs(vol) / 1000;
+  var sx = r.size.x.toFixed(0), sy = r.size.z.toFixed(0), sz = r.size.y.toFixed(0);
+  info.innerHTML = name + '<br>幅' + sx + ' × 奥行' + sy + ' × 高さ' + sz + ' mm<br>体積 約' + vol.toFixed(0) + ' cm³';
+  msg.style.display = 'none';
+}
+
+var loader = new THREE.STLLoader();
+document.getElementById('file').addEventListener('change', function(ev) {
+  var f = ev.target.files[0];
+  if (!f) return;
+  var rd = new FileReader();
+  rd.onload = function() {
+    var geo = loader.parse(rd.result);
+    showGeometry(geo, f.name.replace(/\.stl$/i,''));
+  };
+  rd.readAsArrayBuffer(f);
+});
+document.getElementById('sample').addEventListener('click', function() {
+  loader.load('sample.stl', function(geo) { showGeometry(geo, 'ゴリ作トイレットペーパーホルダー'); });
+});
+document.querySelectorAll('[data-view]').forEach(function(b) {
+  b.addEventListener('click', function() { if (mesh) frameObject(mesh, b.dataset.view); });
+});
+document.getElementById('bedbtn').addEventListener('click', function() {
+  bedBox.visible = !bedBox.visible;
+  this.textContent = bedBox.visible ? 'ベッド枠：入' : 'ベッド枠：切';
+});
+addEventListener('resize', function() {
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+(function loop() { requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
+camera.position.set(240, 200, 240); controls.target.set(0, 60, 0); controls.update();
+</script>
+</body>
+</html>
