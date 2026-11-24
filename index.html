@@ -36,6 +36,8 @@
   <label class="filebtn" for="file">📂 STLを開く</label>
   <input type="file" id="file" accept=".stl">
   <button id="sample">サンプル</button>
+  <button id="chai1">チャイ作・本体</button>
+  <button id="chai2">チャイ作・芯棒</button>
   <div id="info">サイズ：—</div>
 </div>
 <div class="bar" id="bottombar">
@@ -135,6 +137,12 @@ document.getElementById('file').addEventListener('change', function(ev) {
 });
 document.getElementById('sample').addEventListener('click', function() {
   loader.load('sample.stl', function(geo) { showGeometry(geo, 'ゴリ作トイレットペーパーホルダー'); });
+});
+document.getElementById('chai1').addEventListener('click', function() {
+  loader.load('chai_body.stl', function(geo) { showGeometry(geo, 'チャイ作・本体'); });
+});
+document.getElementById('chai2').addEventListener('click', function() {
+  loader.load('chai_spindle.stl', function(geo) { showGeometry(geo, 'チャイ作・芯棒'); });
 });
 document.querySelectorAll('[data-view]').forEach(function(b) {
   b.addEventListener('click', function() { if (mesh) frameObject(mesh, b.dataset.view); });
